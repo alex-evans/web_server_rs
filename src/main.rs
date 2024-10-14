@@ -1,7 +1,8 @@
 use codecrafters_http_server::run;
 
-fn main() {
+#[tokio::main]
+async fn main() {
     println!("Logs from your program will appear here!");
-    run();
+    run().await.unwrap();
 }
 
