@@ -1,6 +1,7 @@
 
 use std::sync::Arc;
 use std::fs::File;
+use std::io::Write;
 use std::io::Read;
 use std::path::Path;
 
@@ -20,7 +21,9 @@ pub struct HttpRequest {
     target: String,
     version: String,
     headers: HttpHeaders,
-    body: String,
+    content_length: usize,
+    content_type: String,
+    content: String,
     directory: String,
 }
 
@@ -53,12 +56,31 @@ impl HttpRequest {
             .find(|&line| line.starts_with("Accept: "))
             .map(|line| line.trim_start_matches("Accept: ").to_string())
             .unwrap_or_default();
-
         let headers = HttpHeaders { host, user_agent, accept };
+
+        // parse body
+        let body_parts: Vec<&str> = body.split("\r\n").collect();
+        let mut content_length: usize = 0;
+        let mut content_type: String = "".to_string();
+        let mut content: String = "".to_string();
+
+        for line in &body_parts {
+            if line.starts_with("Content-Length: ") {
+                content_length = line.trim_start_matches("Content-Length: ").parse().unwrap_or(0);
+                continue;
+            };
+
+            if line.starts_with("Content-Type: ") {
+                content_type = line.trim_start_matches("Content-Type: ").to_string();
+                continue;
+            };
+            
+            content = line.chars().take(content_length).collect::<String>();
+        }
 
         let directory = config.directory.clone();
 
-        HttpRequest { method, target, version, headers, body, directory }
+        HttpRequest { method, target, version, headers, content_type, content_length, content, directory }
     }
 
     pub fn response(&self) -> String {
@@ -99,7 +121,18 @@ impl HttpRequest {
             return self.response_not_found();
         }
 
-        let file_path = Path::new(&self.directory).join(parts[2]);
+        if self.method == "GET" {
+            return self.get_file(parts[2]);
+        } else if self.method == "POST" {
+            return self.post_file(parts[2]);
+        } else {
+            return self.response_not_found();
+        }
+
+    }
+
+    fn get_file(&self, file_name: &str) -> String {
+        let file_path = Path::new(&self.directory).join(file_name);
         if file_path.exists() && file_path.is_file() {
             let mut file = File::open(file_path).unwrap();
             let mut contents = String::new();
@@ -110,10 +143,18 @@ impl HttpRequest {
                 contents
             );
         };
-
         return self.response_not_found();
     }
-        
+
+    fn post_file(&self, file_name: &str) -> String {
+        let file_path = Path::new(&self.directory).join(file_name);
+        let mut file = File::create(file_path).unwrap();
+        file.write_all(self.content.as_bytes()).unwrap();
+        return format!(
+            "HTTP/1.1 201 Created\r\n\r\n"
+        );
+    }
+
     fn handle_user_agent(&self) -> String {
         format!("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {}\r\n\r\n{}", self.headers.user_agent.len(), self.headers.user_agent)
     }
