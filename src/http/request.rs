@@ -4,6 +4,8 @@ use std::fs::File;
 use std::io::Write;
 use std::io::Read;
 use std::path::Path;
+use flate2::write::GzEncoder;
+use flate2::Compression;
 
 use crate::Config;
 
@@ -88,13 +90,13 @@ impl HttpRequest {
         HttpRequest { method, target, version, headers, content_type, content_length, content, directory }
     }
 
-    pub fn response(&self) -> String {
+    pub fn response(&self) -> Vec<u8> {
         match self.target.as_str() {
-            "/" => self.response_ok(),
+            "/" => self.response_ok().as_bytes().to_vec(),
             t if t.starts_with("/echo") => self.handle_echo(),
-            t if t.starts_with("/file") => self.handle_file(),
-            t if t.starts_with("/user-agent") => self.handle_user_agent(),
-            _ => self.response_not_found(),
+            t if t.starts_with("/file") => self.handle_file().as_bytes().to_vec(),
+            t if t.starts_with("/user-agent") => self.handle_user_agent().as_bytes().to_vec(),
+            _ => self.response_not_found().as_bytes().to_vec(),
         }
     }
 
@@ -110,22 +112,31 @@ impl HttpRequest {
 
     // Handle Targets
 
-    fn handle_echo(&self) -> String {
+    fn handle_echo(&self) -> Vec<u8> {
         let parts: Vec<&str> = self.target.split('/').collect();
         
         if parts.len() != 3 {
-            return self.response_not_found()
+            return self.response_not_found().into_bytes();
         }
         
+        let content = parts[2];
+
         if self.headers.accept_encoding.contains("gzip") {
-            return format!("HTTP/1.1 200 OK\r\nContent-Encoding: gzip\r\nContent-Type: text/plain\r\nContent-Length: {}\r\n\r\n{}", parts[2].len(), parts[2]);
+            let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+            encoder.write_all(content.as_bytes()).unwrap();
+            let compressed_content = encoder.finish().unwrap();
+
+            let headers = format!("HTTP/1.1 200 OK\r\nContent-Encoding: gzip\r\nContent-Type: text/plain\r\nContent-Length: {}\r\n\r\n", compressed_content.len());
+            let mut response = headers.into_bytes();
+            response.extend(compressed_content);
+
+            return response;
         }
         
-        return format!("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {}\r\n\r\n{}", parts[2].len(), parts[2]);
+        return format!("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {}\r\n\r\n{}", parts[2].len(), parts[2]).into_bytes();
     }
 
     fn handle_file(&self) -> String {
-        // HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: 14\r\n\r\nHello, World!
         let parts: Vec<&str> = self.target.split('/').collect();
         
         if parts.len() != 3 {

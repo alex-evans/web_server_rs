@@ -69,9 +69,9 @@ async fn handle_connection(stream: TcpStream, config: Arc<Config>) -> Result<(),
             Ok(n) => {
                 
                 let http_request = http::request::HttpRequest::new(std::str::from_utf8(&buf[..n])?, config.clone());
-                let response = http_request.response();
+                let response_bytes = http_request.response();
                 
-                stream_lock.write_all(response.as_bytes()).await?;
+                stream_lock.write_all(&response_bytes).await?;
                 stream_lock.flush().await?;
                 
                 return Ok(());
