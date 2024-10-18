@@ -13,6 +13,7 @@ pub struct HttpHeaders {
     host: String,
     user_agent: String,
     accept: String,
+    accept_encoding: String,
 }
 
 #[allow(unused)]
@@ -56,7 +57,11 @@ impl HttpRequest {
             .find(|&line| line.starts_with("Accept: "))
             .map(|line| line.trim_start_matches("Accept: ").to_string())
             .unwrap_or_default();
-        let headers = HttpHeaders { host, user_agent, accept };
+        let accept_encoding = headers_parts.iter()
+            .find(|&line| line.starts_with("Accept-Encoding: "))
+            .map(|line| line.trim_start_matches("Accept-Encoding: ").to_string())
+            .unwrap_or_default();
+        let headers = HttpHeaders { host, user_agent, accept, accept_encoding };
 
         // parse body
         let body_parts: Vec<&str> = body.split("\r\n").collect();
@@ -107,10 +112,16 @@ impl HttpRequest {
 
     fn handle_echo(&self) -> String {
         let parts: Vec<&str> = self.target.split('/').collect();
-        if parts.len() == 3 {
-            return format!("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {}\r\n\r\n{}", parts[2].len(), parts[2]);
+        
+        if parts.len() != 3 {
+            return self.response_not_found()
         }
-        return "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 4\r\n\r\ntest".to_string();
+        
+        if self.headers.accept_encoding.contains("gzip") {
+            return format!("HTTP/1.1 200 OK\r\nContent-Encoding: gzip\r\nContent-Type: text/plain\r\nContent-Length: {}\r\n\r\n{}", parts[2].len(), parts[2]);
+        }
+        
+        return format!("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {}\r\n\r\n{}", parts[2].len(), parts[2]);
     }
 
     fn handle_file(&self) -> String {
